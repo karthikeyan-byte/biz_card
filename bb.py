@@ -67,7 +67,7 @@ if selected == "Home":
         st.markdown(
             "## :green[**Overview :**] In this Streamlit web app, you can upload an image of a business card and extract relevant information from it using easyOCR. You can view, modify, or delete the extracted data in this app. This app would also allow users to save the extracted information into a database along with the uploaded business card image. The database would be able to store multiple entries, each with its own business card image and extracted information.")
     with col2:
-        st.image("/Users/karthikeyank/Downloads/bizcardx-main/4.png")
+        st.image("4.png")
 
 # UPLOAD AND EXTRACT MENU
 if selected == "Upload & Extract":
