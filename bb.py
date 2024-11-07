@@ -1,11 +1,13 @@
 import pandas as pd
 import streamlit as st
+from streamlit_option_menu import option_menu
 import easyocr
 import sqlite3
 from PIL import Image
 import cv2
 import os
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import re
 
 
@@ -23,8 +25,16 @@ setting_bg()
 if not os.path.exists('uploaded_cards'):
     os.makedirs('uploaded_cards')
 
-# CREATING PAGE NAVIGATION USING SELECTBOX
-page = st.selectbox('Select a Page', ['Home', 'Upload & Extract', 'Modify'])
+# CREATING OPTION MENU
+selected = option_menu(None, ["Home", "Upload & Extract", "Modify"],
+                       icons=["house", "cloud-upload", "pencil-square"],
+                       default_index=0,
+                       orientation="horizontal",
+                       styles={"nav-link": {"font-size": "35px", "text-align": "centre", "margin": "0px",
+                                             "--hover-color": "#6495ED"},
+                               "icon": {"font-size": "35px"},
+                               "container": {"max-width": "6000px"},
+                               "nav-link-selected": {"background-color": "#6495ED"}})
 
 # INITIALIZING THE EasyOCR READER
 reader = easyocr.Reader(['en'])
@@ -50,7 +60,7 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS card_data
                     )''')
 
 # HOME MENU
-if page == "Home":
+if selected == "Home":
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("## :green[**Technologies Used :**] Python,easy OCR, Streamlit, SQL, Pandas")
@@ -60,7 +70,7 @@ if page == "Home":
         st.image("/Users/karthikeyank/Downloads/bizcardx-main/4.png")
 
 # UPLOAD AND EXTRACT MENU
-if page == "Upload & Extract":
+if selected == "Upload & Extract":
     st.markdown("### Upload a Business Card")
     uploaded_card = st.file_uploader("Upload here", label_visibility="collapsed", type=["png", "jpeg", "jpg"])
 
@@ -74,21 +84,27 @@ if page == "Upload & Extract":
         save_card(uploaded_card)
 
         def image_preview(image, res):
-            fig, ax = plt.subplots()  # Create a new figure object
-            
+            fig, ax = plt.subplots()  # Create a figure and axes
+            ax.imshow(image)
+
             for (bbox, text, prob) in res:
+                # Unpack the bounding box coordinates
                 (tl, tr, br, bl) = bbox
                 tl = (int(tl[0]), int(tl[1]))
                 tr = (int(tr[0]), int(tr[1]))
                 br = (int(br[0]), int(br[1]))
                 bl = (int(bl[0]), int(bl[1]))
-                cv2.rectangle(image, tl, br, (0, 255, 0), 2)
-                cv2.putText(image, text, (tl[0], tl[1] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
 
-            ax.axis('off')  # Hide axis
-            ax.imshow(image)  # Show image on the created axis
-            return fig  # Return the figure object
+                # Create a rectangle using patches.Rectangle
+                rect = patches.Rectangle(tl, br[0] - tl[0], br[1] - tl[1],
+                                         linewidth=2, edgecolor='green', facecolor='none')
+                ax.add_patch(rect)
+
+                # Annotate the rectangle with the extracted text
+                ax.text(tl[0], tl[1] - 10, text, fontsize=8, color='red', bbox=dict(facecolor='white', alpha=0.5))
+
+            ax.axis('off')  # Hide axes
+            return fig  # Return the figure with annotations
 
         # DISPLAYING THE UPLOADED CARD
         col1, col2 = st.columns(2, gap="large")
@@ -97,17 +113,19 @@ if page == "Upload & Extract":
             st.markdown("#     ")
             st.markdown("### You have uploaded the card")
             st.image(uploaded_card)
+        
         # DISPLAYING THE CARD WITH HIGHLIGHTS
         with col2:
             st.markdown("#     ")
             st.markdown("#     ")
             with st.spinner("Please wait processing image..."):
-              
+
                 saved_img = os.getcwd() + "/" + "uploaded_cards" + "/" + uploaded_card.name
                 image = cv2.imread(saved_img)
                 res = reader.readtext(saved_img)
                 st.markdown("### Image Processed and Data Extracted")
-                st.pyplot(image_preview(image, res))
+                fig = image_preview(image, res)  # Get the figure
+                st.pyplot(fig)
 
         # easy OCR
         saved_img = os.getcwd() + "/" + "uploaded_cards" + "/" + uploaded_card.name
@@ -172,7 +190,7 @@ if page == "Upload & Extract":
 
                 # To get CITY NAME
                 match1 = re.findall('.+St , ([a-zA-Z]+).+', i)
-                match2 = re.findall('.+St,, ([a-zA-Z]+).+', i)
+                match2 = re.findall('.+St,, ([a-zAZ]+).+', i)
                 match3 = re.findall('^[E].*', i)
                 if match1:
                     data["city"].append(match1[0])
@@ -211,18 +229,18 @@ if page == "Upload & Extract":
             for i, row in df.iterrows():
                 # here ? is a placeholder for parameterized queries
                 sql = """INSERT INTO card_data(company_name,card_holder,designation,mobile_number,email,website,area,city,state,pin_code,image)
-                         VALUES (?,?,?,?,?,?,?,?,?,?,?)"""
+                         VALUES(?,?,?,?,?,?,?,?,?,?)"""
                 cursor.execute(sql, tuple(row))
-                # the connection is not auto-committed by default, so we must commit to save our changes
                 conn.commit()
-            st.success("#### Uploaded to the database successfully!")
 
 # MODIFY MENU
-if page == "Modify":
+if selected == "Modify":
     col1, col2, col3 = st.columns([3, 3, 2])
     col2.markdown("## Alter or Delete the data here")
-    column1, column2 , column3 = st.columns(3, gap="large")
+    column1, column2 = st.columns(2, gap="large")
+    
     try:
+        # MODIFYING THE CARD DETAILS
         with column1:
             cursor.execute("SELECT card_holder FROM card_data")
             result = cursor.fetchall()
@@ -231,38 +249,58 @@ if page == "Modify":
                 business_cards[row[0]] = row[0]
             selected_card = st.selectbox("Select a card holder name to update", list(business_cards.keys()))
             st.markdown("#### Update or modify any data below")
+
+            # Fetch existing details for selected card holder
             cursor.execute(
-                "SELECT company_name, card_holder, designation, mobile_number, email, website, area, city, state, pin_code FROM card_data WHERE card_holder = ?",
+                "SELECT company_name, card_holder, designation, mobile_number, email, website, area, city, state, pin_code FROM card_data WHERE card_holder=?",
                 (selected_card,))
-            row = cursor.fetchone()
+            result = cursor.fetchone()
 
-            company_name = st.text_input("Company Name", value=row[0])
-            card_holder = st.text_input("Card Holder Name", value=row[1])
-            designation = st.text_input("Designation", value=row[2])
-            mobile_number = st.text_input("Mobile Number", value=row[3])
-            email = st.text_input("Email", value=row[4])
-            website = st.text_input("Website", value=row[5])
-            area = st.text_input("Area", value=row[6])
-            city = st.text_input("City", value=row[7])
-            state = st.text_input("State", value=row[8])
-            pin_code = st.text_input("Pin Code", value=row[9])
+            # Display the existing data in input fields
+            company_name = st.text_input("Company Name", result[0])
+            card_holder = st.text_input("Card Holder", result[1])
+            designation = st.text_input("Designation", result[2])
+            mobile_number = st.text_input("Mobile Number", result[3])
+            email = st.text_input("Email", result[4])
+            website = st.text_input("Website", result[5])
+            area = st.text_input("Area", result[6])
+            city = st.text_input("City", result[7])
+            state = st.text_input("State", result[8])
+            pin_code = st.text_input("Pin Code", result[9])
 
-        with column2:
-            if st.button("Update the Data"):
-                cursor.execute("""UPDATE card_data SET company_name = ?, card_holder = ?, designation = ?, 
-                                 mobile_number = ?, email = ?, website = ?, area = ?, city = ?, state = ?, pin_code = ? 
-                                 WHERE card_holder = ?""",
-                               (company_name, card_holder, designation, mobile_number, email, website, area, city, state, pin_code, selected_card))
+            # Commit changes to the database
+            if st.button("Commit changes to DB"):
+                cursor.execute(
+                    "UPDATE card_data SET company_name=?, card_holder=?, designation=?, mobile_number=?, email=?, website=?, area=?, city=?, state=?, pin_code=? WHERE card_holder=?",
+                    (company_name, card_holder, designation, mobile_number, email, website, area, city, state, pin_code, selected_card))
                 conn.commit()
-                st.success("Data Updated Successfully!")
+                st.success("Information updated in the database successfully.")
+
+        # DELETING A CARD
+        with column2:
+            cursor.execute("SELECT card_holder FROM card_data")
+            result = cursor.fetchall()
+            business_cards = {}
+            for row in result:
+                business_cards[row[0]] = row[0]
+            selected_card_to_delete = st.selectbox("Select a card holder name to Delete", list(business_cards.keys()))
+            st.write(f"### You have selected :green[**{selected_card_to_delete}'s**] card to delete")
+            st.write("#### Proceed to delete this card?")
+
+            # Deleting the selected card
+            if st.button("Yes, Delete Business Card"):
+                cursor.execute("DELETE FROM card_data WHERE card_holder=?", (selected_card_to_delete,))
+                conn.commit()
+                st.success("Business card information deleted from the database.")
     except Exception as e:
-        st.error(f"Error: {e}")
-    
-    # DELETE OPTION
-    if column3.button("Delete"):
-        try:
-            cursor.execute("DELETE FROM card_data WHERE card_holder = ?", (selected_card,))
-            conn.commit()
-            st.success("Record Deleted!")
-        except Exception as e:
-            st.error(f"Error: {e}")
+        st.warning(f"There is no data available in the database. Error: {e}")
+
+    # Viewing the updated data after modification
+    if st.button("View updated data"):
+        cursor.execute(
+            "SELECT company_name, card_holder, designation, mobile_number, email, website, area, city, state, pin_code FROM card_data")
+        updated_df = pd.DataFrame(cursor.fetchall(),
+                                  columns=["Company Name", "Card Holder", "Designation", "Mobile Number", "Email",
+                                           "Website", "Area", "City", "State", "Pin Code"])
+        st.write(updated_df)
+
